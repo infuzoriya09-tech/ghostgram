@@ -41,7 +41,7 @@ def import_certificates(certificatesPath):
     for file_name in os.listdir(certificatesPath):
         file_path = certificatesPath + '/' + file_name
         if file_path.endswith('.p12') or file_path.endswith('.cer'):
-            run_executable_with_output('security', arguments=[
+            print('importing {}: {}'.format(file_name, run_executable_with_output('security', arguments=[
                 'import',
                 file_path,
                 '-k',
@@ -52,7 +52,7 @@ def import_certificates(certificatesPath):
                 '/usr/bin/codesign',
                 '-T',
                 '/usr/bin/security'
-            ], check_result=False)
+            ], check_result=False)))
 
     run_executable_with_output('security', arguments=[
         'import',
@@ -93,12 +93,13 @@ def import_certificates(certificatesPath):
             run_executable_with_output('openssl', arguments=[
                 'pkcs12', '-in', source_path, '-passin', 'pass:', '-nodes', '-out', pem_path
             ], check_result=True)
+            # an empty PKCS#12 password makes macOS fail MAC verification, so set a real one
             run_executable_with_output('openssl', arguments=[
-                'pkcs12', '-export', '-in', pem_path, '-out', modern_path, '-passout', 'pass:',
-                '-keypbe', 'aes-256-cbc', '-certpbe', 'aes-256-cbc', '-macalg', 'sha256'
+                'pkcs12', '-export', '-in', pem_path, '-out', modern_path, '-passout', 'pass:' + keychain_password,
+                '-keypbe', 'aes-256-cbc', '-certpbe', 'aes-256-cbc'
             ], check_result=True)
             run_executable_with_output('security', arguments=[
-                'import', modern_path, '-k', keychain_name, '-P', '',
+                'import', modern_path, '-k', keychain_name, '-P', keychain_password,
                 '-T', '/usr/bin/codesign', '-T', '/usr/bin/security'
             ], check_result=True)
 
