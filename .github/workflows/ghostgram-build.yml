@@ -51,8 +51,14 @@ jobs:
           python3 - <<'EOF'
           import json, os
           c = json.load(open('build-system/appstore-configuration.json'))
-          c['api_id'] = os.environ['API_ID']
-          c['api_hash'] = os.environ['API_HASH']
+          api_id = os.environ['API_ID'].strip()
+          api_hash = os.environ['API_HASH'].strip()
+          if not api_id.isdigit():
+              raise SystemExit('API_ID must contain only digits, check the secret')
+          if len(api_hash) != 32 or not all(ch in '0123456789abcdef' for ch in api_hash.lower()):
+              raise SystemExit('API_HASH must be 32 hex characters, check the secret')
+          c['api_id'] = api_id
+          c['api_hash'] = api_hash
           json.dump(c, open('build-system/my-configuration.json', 'w'), indent=2)
           EOF
 
