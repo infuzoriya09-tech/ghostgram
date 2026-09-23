@@ -79,7 +79,21 @@ def import_certificates(certificatesPath):
     run_executable_with_output('security', arguments=['default-keychain', '-s', keychain_name], check_result=False)
     run_executable_with_output('security', arguments=['set-keychain-settings', '-t', '21600', '-u', keychain_name], check_result=False)
 
+    # the signing certificate is self-signed, so macOS treats it as an invalid
+    # codesigning identity until it is explicitly trusted as a root
+    for file_name in sorted(os.listdir(certificatesPath)):
+        if file_name.endswith('.cer'):
+            print('trusting {}: {}'.format(file_name, run_executable_with_output('sudo', arguments=[
+                'security', 'add-trusted-cert', '-d', '-r', 'trustRoot',
+                '-k', '/Library/Keychains/System.keychain', certificatesPath + '/' + file_name
+            ], check_result=False)))
+
     identities = find_codesigning_identities(keychain_name)
+
+    if not has_identity(identities):
+        print('All identities, including invalid ones: {}'.format(run_executable_with_output('security', arguments=[
+            'find-identity', '-p', 'codesigning', keychain_name
+        ], check_result=False)))
 
     if not has_identity(identities):
         # recent macOS releases refuse to import PKCS#12 files encrypted with the
