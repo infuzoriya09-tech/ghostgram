@@ -76,6 +76,54 @@ def import_certificates(certificatesPath):
         keychain_name
     ], check_result=True)
 
+    run_executable_with_output('security', arguments=['default-keychain', '-s', keychain_name], check_result=False)
+    run_executable_with_output('security', arguments=['set-keychain-settings', '-t', '21600', '-u', keychain_name], check_result=False)
+
+    identities = find_codesigning_identities(keychain_name)
+
+    if not has_identity(identities):
+        # recent macOS releases refuse to import PKCS#12 files encrypted with the
+        # legacy RC2-40 cipher, so re-wrap them in AES-256 and import again
+        for file_name in sorted(os.listdir(certificatesPath)):
+            if not file_name.endswith('.p12'):
+                continue
+            source_path = certificatesPath + '/' + file_name
+            pem_path = '/tmp/{}.pem'.format(file_name)
+            modern_path = '/tmp/modern-{}'.format(file_name)
+            run_executable_with_output('openssl', arguments=[
+                'pkcs12', '-in', source_path, '-passin', 'pass:', '-nodes', '-out', pem_path
+            ], check_result=True)
+            run_executable_with_output('openssl', arguments=[
+                'pkcs12', '-export', '-in', pem_path, '-out', modern_path, '-passout', 'pass:',
+                '-keypbe', 'aes-256-cbc', '-certpbe', 'aes-256-cbc', '-macalg', 'sha256'
+            ], check_result=True)
+            run_executable_with_output('security', arguments=[
+                'import', modern_path, '-k', keychain_name, '-P', '',
+                '-T', '/usr/bin/codesign', '-T', '/usr/bin/security'
+            ], check_result=True)
+
+        run_executable_with_output('security', arguments=[
+            'set-key-partition-list', '-S', 'apple-tool:,apple:', '-k', keychain_password, keychain_name
+        ], check_result=True)
+        identities = find_codesigning_identities(keychain_name)
+
+    if not has_identity(identities):
+        print('No codesigning identity is available after importing {}'.format(certificatesPath))
+        print('Search list: {}'.format(run_executable_with_output('security', arguments=['list-keychains'], check_result=False)))
+        sys.exit(1)
+
+
+def find_codesigning_identities(keychain_name):
+    identities = run_executable_with_output('security', arguments=[
+        'find-identity', '-v', '-p', 'codesigning', keychain_name
+    ], check_result=False)
+    print('Codesigning identities in {}: {}'.format(keychain_name, identities))
+    return identities
+
+
+def has_identity(identities):
+    return 'Apple Distribution' in identities or 'Apple Development' in identities or 'iPhone Distribution' in identities
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='build')
