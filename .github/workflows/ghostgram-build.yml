@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: false
 
@@ -24,6 +24,13 @@ jobs:
           sed -i '' 's#url=../tgcalls.git#url = https://github.com/TelegramMessenger/tgcalls.git#' .gitmodules
           git submodule sync --recursive
           git submodule update --init --recursive -j8
+
+      - name: Fix Bazel checksum for Apple Silicon runner
+        run: |
+          # versions.json contains the SHA256 of the Intel (x86_64) Bazel binary,
+          # but macos-26 runners are Apple Silicon (arm64)
+          sed -i '' 's/ce73346274c379f77880db8bd8b9c8569885fe56f19386173760949da9078df0/45e9388abf21d1107e146ea366ad080eb93cb6a5f3a4a3b048f78de0bc3faffa/' versions.json
+          cat versions.json
 
       - name: Select Xcode
         run: |
@@ -37,6 +44,10 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
         run: |
+          if [ -z "$API_ID" ] || [ -z "$API_HASH" ]; then
+            echo "::error::Secrets API_ID and/or API_HASH are not set (Settings -> Secrets and variables -> Actions)"
+            exit 1
+          fi
           python3 - <<'EOF'
           import json, os
           c = json.load(open('build-system/appstore-configuration.json'))
