@@ -1,0 +1,67 @@
+name: Build Ghostgram
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Fix broken submodule URLs and fetch submodules
+        run: |
+          # rlottie and tgcalls point to repos that don't exist in the author's account
+          sed -i '' 's#url=../rlottie.git#url = https://github.com/TelegramMessenger/rlottie.git#' .gitmodules
+          sed -i '' 's#url=../tgcalls.git#url = https://github.com/TelegramMessenger/tgcalls.git#' .gitmodules
+          git submodule sync --recursive
+          git submodule update --init --recursive -j8
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.2.app
+          fi
+          xcodebuild -version
+
+      - name: Create build configuration
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          c = json.load(open('build-system/appstore-configuration.json'))
+          c['api_id'] = os.environ['API_ID']
+          c['api_hash'] = os.environ['API_HASH']
+          json.dump(c, open('build-system/my-configuration.json', 'w'), indent=2)
+          EOF
+
+      - name: Build IPA
+        run: |
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --overrideXcodeVersion \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath=build-system/my-configuration.json \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber=100001 \
+            --outputBuildArtifactsPath=out
+          ls -la out
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghostgram-ipa
+          path: out/Telegram.ipa
+          retention-days: 7
